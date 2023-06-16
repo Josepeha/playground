@@ -5,6 +5,8 @@ const ucum = require('@lhncbc/ucum-lhc');
 const ucumUtils = ucum.UcumLhcUtils.getInstance();
 const {SerializedDocumentArray, SerializedDocument} = require('@healthtree/firestore-join');
 
+const convertMassToMolesError = 'Did you wish to convert between mass and moles?  The molecular weight of the substance represented by the units is required to perform the conversion.'
+
 async function checkIfValueQuantityIsWithinRange(valueQuantity, ruleData, observationMappings = []) {
   let toCompareResult;
   if (ruleData.unitNotRequired) {
@@ -13,23 +15,26 @@ async function checkIfValueQuantityIsWithinRange(valueQuantity, ruleData, observ
       toVal: valueQuantity.value
     };
   } else {
-    // TODO: handle mol unit conversion
-    // validate units (valueQuantity.unit, ruleData.unit)
-    // convert valueQuantity.value to ruleData.unit
-    try {
+    toCompareResult = ucumUtils.convertUnitTo(
+        valueQuantity.unit,
+        valueQuantity.value,
+        ruleData.unit
+    );
+    if (toCompareResult.status === 'failed' &&
+        toCompareResult.msg[0].includes('The molecular weight of the substance represented by the units is required')) {
+      const mappings = await SerializedDocumentArray.fromDocumentReferenceArray(observationMappings);
+      const molecularWeight = mappings.find(m => m.data?.standardUnit === valueQuantity.unit).data.molecularWeight;
+      if (molecularWeight === undefined) {
+        throw `No molecular weight found in any of the mappings related to the observation`
+      }
       toCompareResult = ucumUtils.convertUnitTo(
           valueQuantity.unit,
           valueQuantity.value,
-          ruleData.unit
+          ruleData.unit,
+          undefined,
+          molecularWeight
       );
-    } catch(err) {
-      // si de error me pide un molecullar weight, pide el mapping para sacarlo
-      // convertUnitTo(fromUnitCode, fromVal, toUnitCode, false, molecularWeight) {
-      if (err) {
-        console.log('okay')
-      }
     }
-
   }
 
   if (toCompareResult.status === 'succeeded') {
@@ -49,7 +54,7 @@ async function checkIfValueQuantityIsWithinRange(valueQuantity, ruleData, observ
 
 const valueQuantity = {
   unit: 'nmol/L',
-  value: 500
+  value: 489.5331
 }
 const ruleData = {
   resourceToUse: 'mappings',
